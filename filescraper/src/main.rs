@@ -8,14 +8,20 @@ fn main() {
     let file_path = stdin.lock().lines().next().unwrap().unwrap();
 
     // Read the file content
-    let file_content = fs::read_to_string(&file_path)
-        .expect("Failed to read the file.");
+    let file_content = match fs::read_to_string(&file_path) {
+        Ok(content) => content,
+        Err(error) => {
+            eprintln!("Failed to read the file: {}", error);
+            return;
+        }
+    };
 
     // Scrape URLs from the file content
     let urls = scrape_urls(&file_content);
 
     // Print the scraped URLs
     println!("Scraped URLs:");
+
     for url in urls {
         println!("{}", url);
     }
