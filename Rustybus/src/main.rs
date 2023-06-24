@@ -1,43 +1,55 @@
-use td::error::Error;
-use std::time::Duration;
-
-use tokio::time::sleep;
+use std::env;
+use std::net::IpAddr;
+use std::str::FromStr;
+use tokio::runtime::Runtime;
 use tokio_modbus::prelude::*;
-use tokio_modbus::rtu::SerialPort;
+use tokio_modbus::tcp::TcpMaster;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    // Connect to the Modbus PLC via serial port
-    let mut ctx = ModbusContext::new_rtu(
-        SerialPort::new("/dev/ttyUSB0", 19200, 'N', 8, 1)?,
-        ModbusMode::RTU,
-    );
+const DEFAULT_PORT: u16 = 502;
 
-    // Set the slave ID of the PLC you want to communicate with
-    ctx.set_slave(1);
-
-    // Read holding registers from the PLC
-    let start_address = 0;
-    let num_registers = 10;
-    let response = ctx.read_holding_registers(start_address, num_registers).await?;
-
-    // Print the received data
-    for (i, value) in response.iter().enumerate() {
-        println!("Register {}: {}", start_address + i as u16, value);
+fn main() {
+    // Parse the target IP address from command-line arguments
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 3 {
+        println!("Usage: cargo run -- <IP_ADDRESS> <UNIT_ID>");
+        return;
     }
+    let target_ip = match IpAddr::from_str(&args[1]) {
+        Ok(ip) => ip,
+        Err(_) => {
+            println!("Invalid IP address");
+            return;
+        }
+    };
+    let unit_id = match u8::from_str(&args[2]) {
+        Ok(id) => id,
+        Err(_) => {
+            println!("Invalid unit ID");
+            return;
+        }
+    };
 
-    // Write a value to a holding register in the PLC
-    let register_address = 100;
-    let value_to_write = 42;
-    ctx.write_single_register(register_address, value_to_write).await?;
+    // Create a Tokio runtime
+    let rt = Runtime::new().expect("Failed to create Tokio runtime");
 
-    // Sleep for 1 second
-    sleep(Duration::from_secs(1)).await;
+    // Write values to Modbus registers
+    rt.block_on(async {
+        let addr = SocketAddr::from((target_ip, DEFAULT_PORT));
+        let mut ctx = TcpMaster::connect(addr).await.expect("Failed to connect");
 
-    // Read the value from the previously written holding register
-    let response = ctx.read_holding_registers(register_address, 1).await?;
-    let read_value = response[0];
-    println!("Register {}: {}", register_address, read_value);
+        let address = 0; // Address of the register to write to
+        let value: u16 = 1234; // Value to write
 
-    Ok(())
-}s
+        match ctx.write_single_register(unit_id, address, value).await {
+            Ok(_) => {
+                println!("Value written successfully! IP: {}, Unit ID: {}, Address: {}, Value: {}", target_ip, unit_id, address, value);
+                // Additional actions can be performed here if needed
+            }
+            Err(err) => {
+                println!("Failed to write value: {:?}", err);
+            }
+        }
+
+        println!("Write operation complete.");
+    });
+}
